@@ -8,6 +8,8 @@ const isInitialized = ref(true)
 const loading = ref(false)
 const message = ref('')
 const username = ref('admin')
+const hasLegacyData = ref(false)
+const migrationLoading = ref(false)
 
 const checkInitStatus = async () => {
   try {
@@ -33,7 +35,23 @@ const checkInitStatus = async () => {
 
 onMounted(() => {
   checkInitStatus()
+  checkLegacyStatus()
 })
+
+const checkLegacyStatus = async () => {
+  try {
+    const res = await fetch('/legacy-api/migrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'status' })
+    })
+    const data = await res.json()
+    hasLegacyData.value = data.code === 0 && !!data.data?.initialized
+  } catch (e) {
+    console.error('Legacy status check error:', e)
+    hasLegacyData.value = false
+  }
+}
 
 const handleSubmit = async () => {
   if (!tokenInput.value) return
@@ -150,6 +168,55 @@ const handlePasskeyLogin = async () => {
   }
 }
 
+const handleLegacyMigration = async () => {
+  if (!tokenInput.value) {
+    message.value = '请输入旧 KV Token 或 ADMIN_TOKEN'
+    return
+  }
+
+  migrationLoading.value = true
+  message.value = ''
+
+  try {
+    const legacyRes = await fetch('/legacy-api/migrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'export_all',
+        token: tokenInput.value
+      })
+    })
+    const legacyData = await legacyRes.json()
+
+    if (legacyData.code !== 0) {
+      throw new Error(legacyData.message || '旧 KV 导出失败')
+    }
+
+    const res = await fetch('/api/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'migrate_from_legacy',
+        token: tokenInput.value,
+        legacyBundle: legacyData.data
+      })
+    })
+    const data = await res.json()
+
+    if (data.code === 0) {
+      message.value = `迁移成功！已迁入 ${data.data.importedCounters} 个计数器，正在登录...`
+      emit('login', tokenInput.value)
+    } else {
+      message.value = data.message
+    }
+  } catch (e) {
+    console.error('Legacy migration error:', e)
+    message.value = e.message
+  } finally {
+    migrationLoading.value = false
+  }
+}
+
 // Base64URL 编解码
 function base64URLEncode(buffer) {
   const bytes = new Uint8Array(buffer)
@@ -193,7 +260,7 @@ function base64URLDecode(base64url) {
         Open Kounter
       </h1>
       <p class="text-gray-400 mb-8">
-        即刻 KV 计数，简单可视化 <span class="mx-2 text-gray-600">|</span> {{ isInitialized ? '欢迎回来' : '系统初始化' }}
+        强一致 Blob 计数，简单可视化 <span class="mx-2 text-gray-600">|</span> {{ isInitialized ? '欢迎回来' : '系统初始化' }}
       </p>
     </div>
 
@@ -223,7 +290,7 @@ function base64URLDecode(base64url) {
         
         <button 
           @click="handleSubmit" 
-          :disabled="loading"
+          :disabled="loading || migrationLoading"
           class="w-full py-3.5 bg-gradient-to-r from-primary to-purple-600 hover:from-primary-hover hover:to-purple-500 text-white font-bold rounded-xl shadow-lg shadow-primary/25 hover:shadow-primary/40 transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none flex items-center justify-center gap-2"
         >
           <svg v-if="loading" class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -235,6 +302,26 @@ function base64URLDecode(base64url) {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
           </svg>
         </button>
+
+        <button
+          v-if="!isInitialized && hasLegacyData"
+          @click="handleLegacyMigration"
+          :disabled="loading || migrationLoading"
+          class="w-full py-3.5 bg-dark-700/50 hover:bg-dark-700 border border-emerald-500/30 hover:border-emerald-400 text-white font-medium rounded-xl shadow-lg hover:shadow-emerald-500/20 transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none flex items-center justify-center gap-2"
+        >
+          <svg v-if="migrationLoading" class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h10" />
+          </svg>
+          <span>{{ migrationLoading ? '迁移中...' : '从旧 KV 迁移到 Blob' }}</span>
+        </button>
+
+        <p v-if="!isInitialized && hasLegacyData" class="text-xs text-emerald-300/80 text-center leading-relaxed">
+          检测到旧 KV 数据，可直接使用现有 Token 迁移到 Blob 并完成初始化。
+        </p>
 
         <!-- Passkey 登录 -->
         <div v-if="isInitialized" class="relative">

@@ -13,6 +13,8 @@ const fileInput = ref(null)
 const successMessage = ref('')
 const errorMessage = ref('')
 const exportLoading = ref(false)
+const migrateLoading = ref(false)
+const showMigrateModal = ref(false)
 
 const openExportModal = () => {
   showExportModal.value = true
@@ -66,6 +68,57 @@ const showSuccess = (msg) => {
   setTimeout(() => {
     successMessage.value = ''
   }, 3000)
+}
+
+const openMigrateModal = () => {
+  showMigrateModal.value = true
+}
+
+const executeLegacyMigration = async () => {
+  migrateLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    const legacyRes = await fetch('/legacy-api/migrate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action: 'export_all',
+        token: props.token
+      })
+    })
+    const legacyData = await legacyRes.json()
+    if (legacyData.code !== 0) {
+      throw new Error(legacyData.message || '旧 KV 导出失败')
+    }
+
+    const res = await fetch('/api/counter', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${props.token}`
+      },
+      body: JSON.stringify({
+        action: 'migrate_legacy',
+        legacyBundle: legacyData.data
+      })
+    })
+
+    const data = await res.json()
+    if (data.code === 0) {
+      showMigrateModal.value = false
+      showSuccess(`旧 KV 数据已迁入 Blob，共导入 ${data.data.importedCounters} 个计数器。`)
+      emit('refresh')
+    } else {
+      errorMessage.value = '迁移失败: ' + data.message
+    }
+  } catch (e) {
+    errorMessage.value = '迁移出错: ' + e.message
+  } finally {
+    migrateLoading.value = false
+  }
 }
 
 const handleFileChange = (event) => {
@@ -192,6 +245,16 @@ const executeImport = async () => {
       </button>
     </div>
 
+    <button
+      @click="openMigrateModal"
+      class="w-full py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm rounded-lg transition-colors border border-emerald-500/20 flex items-center justify-center gap-2"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h10" />
+      </svg>
+      旧 KV 迁移到 Blob
+    </button>
+
     <!-- Success Message -->
     <div v-if="successMessage" class="text-xs text-green-400 text-center py-1 bg-green-500/10 rounded border border-green-500/20">
       {{ successMessage }}
@@ -216,7 +279,7 @@ const executeImport = async () => {
     </p>
     <div class="mt-4 p-3 bg-dark-900 rounded border border-dark-700 text-xs text-gray-400">
       <p>此操作将生成包含所有计数器数据的 JSON 文件。</p>
-      <p class="mt-1 text-yellow-500/80">注意：导出操作需要遍历所有数据，可能会占用较多的 KV 读写额度。</p>
+      <p class="mt-1 text-yellow-500/80">注意：导出操作需要遍历所有 Blob 计数器数据，计数器较多时耗时会更明显。</p>
     </div>
   </ConfirmModal>
 
@@ -237,6 +300,22 @@ const executeImport = async () => {
     <div class="mt-4 p-3 bg-dark-900 rounded border border-dark-700 text-xs text-gray-400">
       <p>包含计数器：<span class="text-white">{{ importData ? Object.keys(importData.counters).length : 0 }}</span> 个</p>
       <p>包含配置项：<span class="text-white">{{ importData ? (importData.allowedDomains || []).length : 0 }}</span> 个</p>
+    </div>
+  </ConfirmModal>
+
+  <ConfirmModal
+    v-model:show="showMigrateModal"
+    title="迁移旧 KV 数据"
+    confirm-text="确认迁移"
+    :loading="migrateLoading"
+    @confirm="executeLegacyMigration"
+  >
+    <p class="text-gray-400 text-sm leading-relaxed">
+      将尝试从旧版 KV 存储读取计数器、配置和 Passkey 数据，并覆盖写入当前 Blob 存储。
+    </p>
+    <div class="mt-4 p-3 bg-dark-900 rounded border border-dark-700 text-xs text-gray-400">
+      <p>建议在首次切换到 Blob 后执行一次。</p>
+      <p class="mt-1 text-yellow-500/80">此操作会覆盖当前 Blob 中的历史迁移数据，请确认当前登录 Token 仍可访问旧 KV。</p>
     </div>
   </ConfirmModal>
 </template>

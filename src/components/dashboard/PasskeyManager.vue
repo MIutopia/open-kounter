@@ -142,7 +142,7 @@ const handleBindPasskey = async () => {
   }
 }
 
-// Sync ADMIN_TOKEN to KV
+// Sync ADMIN_TOKEN to Blob
 const openSyncModal = () => {
   showSyncModal.value = true
 }
@@ -163,7 +163,7 @@ const executeSyncAdminToken = async () => {
     const data = await res.json()
     if (data.code === 0) {
       showSyncModal.value = false
-      message.value = 'ADMIN_TOKEN 已覆盖写入 KV！即将重新加载...'
+      message.value = 'ADMIN_TOKEN 已覆盖写入 Blob！即将重新加载...'
       setTimeout(() => {
         window.location.reload()
       }, 1500)
@@ -351,7 +351,7 @@ function base64URLDecode(base64url) {
         <span>{{ loading ? '处理中...' : (hasPasskey ? '重新绑定' : '绑定 Passkey') }}</span>
       </button>
 
-      <!-- Sync ADMIN_TOKEN to KV -->
+      <!-- Sync ADMIN_TOKEN to Blob -->
       <div v-if="hasAdminToken" class="border-t border-dark-700 pt-2 mt-2">
         <div class="flex items-center justify-between mb-1">
           <p class="text-xs text-gray-500">环境变量同步</p>
@@ -362,7 +362,7 @@ function base64URLDecode(base64url) {
             ADMIN_TOKEN
           </div>
         </div>
-        <p class="text-xs text-gray-600 mb-2">检测到 ADMIN_TOKEN 环境变量，可将其覆盖写入 KV 存储</p>
+        <p class="text-xs text-gray-600 mb-2">检测到 ADMIN_TOKEN 环境变量，可将其覆盖写入 Blob 主存储</p>
         <button
           @click="openSyncModal"
           :disabled="loading"
@@ -371,7 +371,7 @@ function base64URLDecode(base64url) {
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          <span>TOKEN 覆盖至 KV</span>
+          <span>TOKEN 覆盖至 Blob</span>
         </button>
       </div>
 
@@ -437,10 +437,10 @@ function base64URLDecode(base64url) {
     @confirm="executeSyncAdminToken"
   >
     <p class="text-gray-400 text-sm leading-relaxed">
-      确定要使用 <span class="text-amber-400 font-mono">ADMIN_TOKEN</span> 环境变量覆盖写入 KV 存储吗？
+      确定要使用 <span class="text-amber-400 font-mono">ADMIN_TOKEN</span> 环境变量覆盖写入 Blob 主存储吗？
     </p>
     <div class="mt-4 p-3 bg-dark-900 rounded border border-dark-700 text-xs text-gray-400">
-      <p>覆盖后 KV 中的 Token 将与 ADMIN_TOKEN 保持一致，需要重新登录。</p>
+      <p>覆盖后 Blob 中的 Token 将与 ADMIN_TOKEN 保持一致，需要重新登录。</p>
     </div>
   </ConfirmModal>
 
