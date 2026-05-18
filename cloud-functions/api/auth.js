@@ -1,17 +1,20 @@
 import {
-  deleteJson,
-  loadSystemState,
-  updateSystemState
-} from './_blobStore.js'
-import {
-  consumeManagementToken,
-  createStore,
-  getEffectiveToken,
-  jsonResponse,
-  loadManagementToken,
-  optionsResponse,
-  RES_CODE
+    consumeManagementToken,
+    createStore,
+    getEffectiveToken,
+    jsonResponse,
+    loadManagementToken,
+    optionsResponse,
+    RES_CODE
 } from './_api.js'
+import {
+    deleteJson,
+    loadSystemState,
+    readJson,
+    updateSystemState
+} from './_blobStore.js'
+
+const OIDC_SESSION_PREFIX = 'oidc/sessions/'
 
 export async function onRequest(context) {
   const { request, env } = context
@@ -28,16 +31,21 @@ export async function onRequest(context) {
     }
 
     const body = await request.json()
-    const { action, token, newToken, managementToken } = body
+    const { action, token, newToken, managementToken, oidcSession } = body
     const state = await loadSystemState(store)
     const effectiveToken = await getEffectiveToken(store, env)
 
     if (action === 'get_status') {
+      const hasOidcConfig = !!(env.OIDC_ISSUER && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET && env.OIDC_REDIRECT_URI)
+      const oidcBound = !!(state.oidc && state.oidc.sub)
+
       return jsonResponse(request, {
         code: RES_CODE.SUCCESS,
         data: {
           hasAdminToken: !!env.ADMIN_TOKEN,
-          initialized: !!effectiveToken
+          initialized: !!effectiveToken,
+          // OIDC 登录按钮仅在配置完整且已绑定时显示
+          oidcLoginEnabled: hasOidcConfig && oidcBound
         }
       })
     }
@@ -46,6 +54,40 @@ export async function onRequest(context) {
       return jsonResponse(request, {
         code: RES_CODE.FAIL,
         message: 'Not initialized'
+      })
+    }
+
+    // OIDC session 验证
+    if (action === 'oidc_verify' && oidcSession) {
+      const sessionKey = `${OIDC_SESSION_PREFIX}${oidcSession}.json`
+      const sessionData = await readJson(store, sessionKey)
+
+      if (!sessionData) {
+        return jsonResponse(request, {
+          code: RES_CODE.FAIL,
+          message: 'Invalid or expired OIDC session'
+        })
+      }
+
+      // 检查过期
+      if (sessionData.expiresAt && sessionData.expiresAt <= Date.now()) {
+        await deleteJson(store, sessionKey)
+        return jsonResponse(request, {
+          code: RES_CODE.FAIL,
+          message: 'OIDC session expired'
+        })
+      }
+
+      // 消费 session（一次性）
+      await deleteJson(store, sessionKey)
+
+      // 返回实际的 admin token，前端用它做后续鉴权
+      return jsonResponse(request, {
+        code: RES_CODE.SUCCESS,
+        data: {
+          authorized: true,
+          token: sessionData.effectiveToken
+        }
       })
     }
 
