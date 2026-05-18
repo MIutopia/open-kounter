@@ -174,7 +174,21 @@
 | `dark-600` | `#4C4D4F` | 边框 / 占位文本 |
 | `primary` | `#409eff` | 品牌主色（按钮 / 选中态 / 链接 hover） |
 | `primary-hover` | `#66b1ff` | 主色 hover 态 |
+| `primary-dark` | `#3a8ee6` | 主色加深态（渐变收尾色 / 标题 gradient） |
+| `success` / `success-hover` | `#22c55e` / `#16a34a` | 成功态实色按钮（如"添加""保存"绿色操作） |
+| `warning` / `warning-hover` | `#f59e0b` / `#d97706` | 警示态实色按钮（如"更新""覆盖"操作） |
+| `danger` / `danger-hover` | `#ef4444` / `#dc2626` | 危险态实色按钮（ConfirmModal 删除等） |
 | `gray-200` ~ `gray-500` | Tailwind 默认 | 文字三级（主 / 次 / 弱）；正文默认 `text-gray-200` |
+
+**状态色半透明用法（来自 Tailwind 默认调色板，规范保留）**：
+
+| 场景 | 推荐组合 |
+|---|---|
+| 状态成功（提示横幅 / 徽章） | `bg-green-500/10 text-green-400 border border-green-500/20` |
+| 状态失败 | `bg-red-500/10 text-red-400 border border-red-500/20` |
+| 状态警告 | `bg-amber-500/10 text-amber-400 border border-amber-500/20` |
+
+> 实色按钮用 `bg-success/warning/danger` Token；半透明状态徽章保留使用 `green-500/10` 等 Tailwind 默认色（视为状态语义色，不算"硬编码"）。
 
 **禁止**在新代码中出现 `#1d1e1f` / `#409eff` 等硬编码色值（含 `rgba`），必须经 Token 引用。需要新色时**先加到 `style.css` 的 `@theme` 与 `tailwind.config.js`，再使用**。
 
@@ -197,12 +211,15 @@
 | 顶栏（sticky） | `sticky top-0 z-40 bg-dark-800/80 backdrop-blur-xl border-b border-dark-700/50` |
 | 主操作按钮 | `bg-primary hover:bg-primary-hover text-white font-medium rounded-lg transition-all` |
 | 次操作按钮 | `text-gray-400 hover:text-white bg-dark-700/50 hover:bg-dark-700 border border-dark-600 rounded-lg transition-all` |
-| 危险操作按钮 | `text-gray-400 hover:text-red-400 bg-dark-700/50 hover:bg-red-500/10 border border-dark-600 hover:border-red-500/50 rounded-lg` |
+| 成功操作按钮 | `bg-success hover:bg-success-hover text-white rounded-lg transition-colors` |
+| 警示操作按钮 | `bg-warning hover:bg-warning-hover text-white rounded-lg transition-colors` |
+| 危险操作按钮（轮廓） | `text-gray-400 hover:text-danger bg-dark-700/50 hover:bg-danger/10 border border-dark-600 hover:border-danger/50 rounded-lg` |
+| 危险操作按钮（实色，仅用于 ConfirmModal） | `bg-danger hover:bg-danger-hover text-white rounded-lg transition-colors` |
 | 输入框 | `bg-dark-700 border border-dark-600 focus:border-primary focus:ring-1 focus:ring-primary rounded-lg text-gray-200 placeholder:text-gray-500` |
 | 表格分割 | `divide-y divide-dark-700/50` |
 | 状态成功 | `bg-green-500/10 text-green-400 border border-green-500/20` |
 | 状态失败 | `bg-red-500/10 text-red-400 border border-red-500/20` |
-| 状态警告 | `bg-yellow-500/10 text-yellow-400 border border-yellow-500/20` |
+| 状态警告 | `bg-amber-500/10 text-amber-400 border border-amber-500/20` |
 | 容器宽度 | `max-w-7xl mx-auto px-4 sm:px-6 lg:px-8` |
 
 ---
