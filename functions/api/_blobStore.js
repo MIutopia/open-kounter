@@ -1,23 +1,15 @@
 import { getStore } from '@edgeone/pages-blob'
 
 const DEFAULT_STORE_NAME = 'open-kounter'
-const STRONG_CONSISTENCY = 'strong'
 const SYSTEM_STATE_KEY = 'system/state.json'
 const COUNTERS_DOC_KEY = 'system/counters.json'
-const PASSKEY_USERS_PREFIX = 'passkey/users/'
-const PASSKEY_CREDENTIALS_PREFIX = 'passkey/credentials/'
-const PASSKEY_CHALLENGES_PREFIX = 'passkey/challenges/'
-const PASSKEY_MANAGEMENT_TOKENS_PREFIX = 'passkey/management-tokens/'
 const LOCKS_PREFIX = 'locks/'
 const DEFAULT_LOCK_TTL_MS = 5000
 const DEFAULT_LOCK_ATTEMPTS = 20
 const DEFAULT_LOCK_RETRY_MS = 40
 
 export function createOpenKounterStore(env) {
-  return getStore({
-    name: env?.OPEN_KOUNTER_BLOB_STORE || env?.BLOB_STORE_NAME || DEFAULT_STORE_NAME,
-    consistency: STRONG_CONSISTENCY
-  })
+  return getStore(env?.OPEN_KOUNTER_BLOB_STORE || env?.BLOB_STORE_NAME || DEFAULT_STORE_NAME)
 }
 
 export function createEmptySystemState() {
@@ -26,17 +18,22 @@ export function createEmptySystemState() {
 
 export function normalizeSystemState(state) {
   const normalized = { ...createEmptySystemState(), ...(state || {}) }
-  if (!Array.isArray(normalized.allowedDomains)) { normalized.allowedDomains = [] }
-  if (!normalized.token) { normalized.initializedAt = 0 }
+  if (!Array.isArray(normalized.allowedDomains)) normalized.allowedDomains = []
+  if (!normalized.token) normalized.initializedAt = 0
   return normalized
 }
 
 export async function readJson(store, key) {
-  const value = await store.get(key, { type: 'json', consistency: STRONG_CONSISTENCY })
-  return value || null
+  const value = await store.get(key)
+  if (!value) return null
+  try { return typeof value === 'string' ? JSON.parse(value) : value }
+  catch { return null }
 }
 
-export async function writeJson(store, key, value, options) { await store.setJSON(key, value, options) }
+export async function writeJson(store, key, value) {
+  await store.set(key, JSON.stringify(value))
+}
+
 export async function deleteJson(store, key) { await store.delete(key) }
 
 export async function loadSystemState(store) {
@@ -63,9 +60,9 @@ export function createEmptyCountersDocument() { return { items: {}, updatedAt: 0
 
 export async function loadCountersDocument(store) {
   const existing = await readJson(store, COUNTERS_DOC_KEY)
-  if (existing) { return normalizeCountersDocument(existing) }
+  if (existing) return normalizeCountersDocument(existing)
   const empty = createEmptyCountersDocument()
-  await writeJson(store, COUNTERS_DOC_KEY, empty, { onlyIfNew: true })
+  await writeJson(store, COUNTERS_DOC_KEY, empty)
   return empty
 }
 
@@ -106,7 +103,8 @@ export async function updateCounterRecord(store, target, updater) {
     const currentRecord = current.items[target] || null
     const nextRecord = normalizeCounterRecord(target, updater(currentRecord))
     const next = { ...current, items: { ...current.items }, updatedAt: Date.now() }
-    if (nextRecord) { next.items[target] = nextRecord } else { delete next.items[target] }
+    if (nextRecord) next.items[target] = nextRecord
+    else delete next.items[target]
     return next
   }).then((document) => document.items[target] || null)
 }
@@ -115,7 +113,11 @@ export async function replaceAllCounterRecords(store, counters) {
   const now = Date.now()
   const items = Object.fromEntries(Object.entries(counters || {}).map(([target, rawValue]) => {
     if (typeof rawValue === 'object' && rawValue !== null && 'time' in rawValue) {
-      return [target, normalizeCounterRecord(target, { time: Number.parseInt(rawValue.time, 10) || 0, created_at: Number(rawValue.created_at) || now, updated_at: Number(rawValue.updated_at) || now })]
+      return [target, normalizeCounterRecord(target, {
+        time: Number.parseInt(rawValue.time, 10) || 0,
+        created_at: Number(rawValue.created_at) || now,
+        updated_at: Number(rawValue.updated_at) || now
+      })]
     }
     return [target, normalizeCounterRecord(target, { time: Number.parseInt(rawValue, 10) || 0, created_at: now, updated_at: now })]
   }))
@@ -138,20 +140,23 @@ export async function withBlobLock(store, lockKey, fn, options = {}) {
   const retryMs = options.retryMs || DEFAULT_LOCK_RETRY_MS
   const maxAttempts = options.maxAttempts || DEFAULT_LOCK_ATTEMPTS
   const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      await writeJson(store, lockKey, { requestId, expiresAt: Date.now() + ttlMs, createdAt: Date.now() }, { onlyIfNew: true })
+      await writeJson(store, lockKey, { requestId, expiresAt: Date.now() + ttlMs, createdAt: Date.now() })
       try { return await fn() }
       finally {
         const activeLock = await readJson(store, lockKey)
-        if (activeLock && activeLock.requestId === requestId) { await deleteJson(store, lockKey) }
+        if (activeLock && activeLock.requestId === requestId) await deleteJson(store, lockKey)
       }
     } catch (error) {
-      if (!/onlyifnew|already exists|precondition|conflict|409/i.test(String(error?.message || ''))) { throw error }
+      if (!/onlyifnew|already exists|precondition|conflict|409/i.test(String(error?.message || ''))) throw error
       const activeLock = await readJson(store, lockKey)
       if (activeLock && activeLock.expiresAt && activeLock.expiresAt <= Date.now()) {
         await deleteJson(store, lockKey)
-      } else { await new Promise(r => setTimeout(r, retryMs + Math.floor(Math.random() * retryMs))) }
+      } else {
+        await new Promise(r => setTimeout(r, retryMs + Math.floor(Math.random() * retryMs)))
+      }
     }
   }
   throw new Error(`Blob lock timeout: ${lockKey}`)
@@ -170,14 +175,25 @@ export function normalizeCounterRecord(target, data) {
 export function normalizeCountersDocument(document) {
   const normalized = { ...createEmptyCountersDocument(), ...(document || {}) }
   const items = normalized.items && typeof normalized.items === 'object' ? normalized.items : {}
-  normalized.items = Object.fromEntries(Object.entries(items).map(([target, value]) => [target, normalizeCounterRecord(target, value)]).filter(([, value]) => value))
+  normalized.items = Object.fromEntries(
+    Object.entries(items)
+      .map(([target, value]) => [target, normalizeCounterRecord(target, value)])
+      .filter(([, value]) => value)
+  )
   return normalized
 }
 
 export function encodeKeySegment(value) { return encodeURIComponent(String(value)) }
 export function decodeKeySegment(value) { return decodeURIComponent(value) }
+
+const PASSKEY_USERS_PREFIX = 'passkey/users/'
+const PASSKEY_CREDENTIALS_PREFIX = 'passkey/credentials/'
+const PASSKEY_CHALLENGES_PREFIX = 'passkey/challenges/'
+const PASSKEY_MANAGEMENT_TOKENS_PREFIX = 'passkey/management-tokens/'
+
 export function passkeyUserKey(userId) { return `${PASSKEY_USERS_PREFIX}${encodeKeySegment(userId)}.json` }
-export function passkeyCredentialKey(credentialId) { return `${PASSKEY_CREDENTIALS_PREFIX}${encodeKeySegment(credentialId)}.json` }
-export function passkeyChallengeKey(challengeId) { return `${PASSKEY_CHALLENGES_PREFIX}${encodeKeySegment(challengeId)}.json` }
-export function passkeyManagementTokenKey(tokenId) { return `${PASSKEY_MANAGEMENT_TOKENS_PREFIX}${encodeKeySegment(tokenId)}.json` }
+export function passkeyCredentialKey(cId) { return `${PASSKEY_CREDENTIALS_PREFIX}${encodeKeySegment(cId)}.json` }
+export function passkeyChallengeKey(cId) { return `${PASSKEY_CHALLENGES_PREFIX}${encodeKeySegment(cId)}.json` }
+export function passkeyManagementTokenKey(tId) { return `${PASSKEY_MANAGEMENT_TOKENS_PREFIX}${encodeKeySegment(tId)}.json` }
+
 export { COUNTERS_DOC_KEY, SYSTEM_STATE_KEY }
